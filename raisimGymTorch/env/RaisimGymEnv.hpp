@@ -63,6 +63,9 @@ class RaisimGymEnv {
   void startRecordingVideo(const std::string& videoName ) { server_->startRecordingVideo(videoName); }
   void stopRecordingVideo() { server_->stopRecordingVideo(); }
 
+  virtual void setSpeedCommand(double, double) {}
+  virtual void getTelemetry(Eigen::Ref<EigenVec> out) { out.setZero(); }
+
  protected:
   std::unique_ptr<raisim::World> world_;
   double simulation_dt_ = 0.001;

@@ -1,0 +1,11 @@
+# Mini eval override: 2 variants per morphology condition
+morphology:
+  num_variants: 2
+
+speed_search:
+  enabled: true
+
+policy:
+  type: blind
+  checkpoint_dir: data/blind_policy
+  policy_id: 1200

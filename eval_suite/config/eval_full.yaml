@@ -1,0 +1,15 @@
+# Full morphology eval: 1 baseline + 16 symmetric + 16 full_asym = 33 variants
+# Merges on top of eval_defaults.yaml — no other changes needed.
+
+morphology:
+  num_variants: 16
+  pool_size: 64
+  seed: 42
+
+policy:
+  type: blind
+  checkpoint_dir: data/blind_policy
+  policy_id: 1200
+
+speed_search:
+  enabled: true

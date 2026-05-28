@@ -138,6 +138,17 @@ class VectorizedEnvironment {
       env->curriculumUpdate();
   };
 
+  void setSpeedCommand(double vx, double wz) {
+    for (auto *env: environments_)
+      env->setSpeedCommand(vx, wz);
+  }
+
+  void getTelemetry(Eigen::Ref<EigenRowMajorMat> &telemetry) {
+#pragma omp parallel for schedule(dynamic)
+    for (int i = 0; i < num_envs_; i++)
+      environments_[i]->getTelemetry(telemetry.row(i));
+  }
+
  private:
 
   inline void perAgentStep(int agentId,

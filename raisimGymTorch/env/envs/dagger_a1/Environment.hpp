@@ -125,7 +125,25 @@ namespace raisim
       READ_YAML(double, ang_speed, cfg["ang_speed"])
       READ_YAML(double, terrain_freq, cfg["terrainFreq"])
 
-      a1_ = world_->addArticulatedSystem(resourceDir_ + "/a1/urdf/a1.urdf");
+      morphologyEval_ = false;
+      if (&cfg["morphology_eval"])
+        morphologyEval_ = cfg["morphology_eval"].template As<bool>();
+      morphology_max_steps_ = 500;
+      if (&cfg["morphology_max_steps"])
+        morphology_max_steps_ = cfg["morphology_max_steps"].template As<int>();
+      urdfRelPath_ = "a1/urdf/a1.urdf";
+      if (&cfg["urdf_path"])
+      {
+        auto configuredUrdf = cfg["urdf_path"].template As<std::string>();
+        if (!configuredUrdf.empty())
+          urdfRelPath_ = configuredUrdf;
+      }
+
+      std::string urdfFullPath = urdfRelPath_;
+      if (urdfRelPath_.empty() || urdfRelPath_[0] != '/')
+        urdfFullPath = resourceDir_ + "/" + urdfRelPath_;
+
+      a1_ = world_->addArticulatedSystem(urdfFullPath);
       a1_->setName("a1");
       a1_->setControlMode(raisim::ControlMode::PD_PLUS_FEEDFORWARD_TORQUE);
 
@@ -168,8 +186,10 @@ namespace raisim
       jt_mean_pos.setZero(nJoints_);
 
       jt_mean_pos << 0.05, 0.8, -1.4, -0.05, 0.8, -1.4, 0.05, 0.8, -1.4, -0.05, 0.8, -1.4;
-      // randomize terrains
-      randomize_terrain();
+      if (morphologyEval_)
+        init_flat_morphology();
+      else
+        randomize_terrain();
 
       /// set pd gains
       // std::cout << "Pid coeffs " <<  pid_coeff << std::endl;
@@ -223,6 +243,7 @@ namespace raisim
       grf_bin_obs.setZero(nFoot);
       last_swing.setZero(nFoot);
       last_foot_state.setZero(nFoot);
+      cached_telemetry_.setZero(8);
     }
 
     void init() final {}
@@ -236,6 +257,42 @@ namespace raisim
     {
           add_random_terrain();
           gc_init_ << 0, 0, 0.6, 1.0, 0.0, 0.0, 0.0, jt_mean_pos;
+    }
+
+    void init_flat_morphology()
+    {
+      isSlope = false;
+      add_flat_heightmap();
+      gc_init_ << 0, 0, 0.6, 1.0, 0.0, 0.0, 0.0, jt_mean_pos;
+    }
+
+    void add_flat_heightmap()
+    {
+      isSlope = false;
+      raisim::TerrainProperties terrainProperties;
+      terrainProperties.frequency = 10;
+      terrainProperties.zScale = 0.0;
+      terrainProperties.xSize = 12;
+      terrainProperties.ySize = 12;
+      terrainProperties.xSamples = 200;
+      terrainProperties.ySamples = 200;
+      terrainProperties.fractalOctaves = 2;
+      terrainProperties.fractalLacunarity = 2.0;
+      terrainProperties.fractalGain = 0.25;
+      hm_ = world_->addHeightMap(Eigen::VectorXd::Random(1)[0] + 4, Eigen::VectorXd::Random(1)[0], terrainProperties);
+      tparams[0] = 1;
+      tparams[1] = 0.;
+      tparams[2] = 0.;
+    }
+
+    void apply_speed_command(double vx, double wz)
+    {
+      max_speed = vx;
+      ang_speed = wz;
+      double delta_max_speed = vx - 0.5;
+      double delta_ang_speed = wz;
+      speed_vec.setZero();
+      speed_vec << delta_max_speed, delta_ang_speed, delta_max_speed, delta_ang_speed;
     }
 
     void add_steps()
@@ -784,12 +841,14 @@ namespace raisim
     void reset(bool resample) final
     {
       // std::cout << "It number is " << itr_number << std::endl;
-      if (isTest || isEval)
+      if (morphologyEval_)
+        resample = false;
+      else if (isTest || isEval)
         resample = true;
       int change_terrain_freq = 100;
       if (itr_number > start_itr_stairs)
         change_terrain_freq = 50;
-      if (itr_number % change_terrain_freq == 0 || isTest || isEval)
+      if (!morphologyEval_ && (itr_number % change_terrain_freq == 0 || isTest || isEval))
       {
         if (hm_)
         { // big change here, maybe revert
@@ -820,13 +879,13 @@ namespace raisim
       avgYawVel = 0;
 
       step_counter = 0;
-      if (resample)
+      if (resample && !morphologyEval_)
         sample_goals();
       gv_init_.setZero(gvDim_);
       gv_init_ += 0.1 * Eigen::VectorXd::Random(gvDim_);
 
       double z_ht = (hm_) ? hm_->getHeight(gc_init_[0], gc_init_[1]) : 0;
-      gc_init_[2] = z_ht + 0.4;
+      gc_init_[2] = z_ht + (morphologyEval_ ? 0.6 : 0.4);
 
       a1_->setState(gc_init_, gv_init_);
 
@@ -944,9 +1003,9 @@ namespace raisim
     {
       step_counter += 1;
 
-      if (step_counter % (300 + sample_residual_goal_steps) == 300 + sample_residual_goal_steps - 1)
+      if (step_counter % (300 + sample_residual_goal_steps) == 300 + sample_residual_goal_steps - 1 && !morphologyEval_)
         sample_goals();
-      if (step_counter % (50 + sample_residual_env_steps) == 50 + sample_residual_env_steps - 1)
+      if (step_counter % (50 + sample_residual_env_steps) == 50 + sample_residual_env_steps - 1 && !morphologyEval_)
         randomize_sim_params();
       act_history.push_back(action_vec.cast<double>());
 
@@ -1026,7 +1085,7 @@ namespace raisim
       }
       grf_bin_obs = grf_bin;
 
-      if(abs(max_speed) < 0.15)
+      if(!morphologyEval_ && abs(max_speed) < 0.15)
       	applyExternalForceRandomly();
       updateObservation();
 
@@ -1098,6 +1157,7 @@ namespace raisim
         cumulative_reward = -10.0;
 
       walked_dist_ = (gc_.segment(0, 3) - loc_xy_prev).norm();
+      cache_step_telemetry_();
       return cumulative_reward;
     }
 
@@ -1180,7 +1240,7 @@ namespace raisim
       }
 
       float term_pitch = 0.2;
-      if ((isTest || isSlope || isEval))
+      if (morphologyEval_ || isTest || isSlope || isEval)
         term_pitch = 0.8;
       if (abs(bodyOrientation_[0]) > 0.6 || abs(bodyOrientation_[1]) > term_pitch)
       {
@@ -1192,7 +1252,7 @@ namespace raisim
       double y = gc_[1];
       double z_ht = (hm_) ? hm_->getHeight(x, y) : 0;
       double term_height = 0.24;
-      if ((isTest || isSlope || isEval))
+      if (morphologyEval_ || isTest || isSlope || isEval)
         term_height = 0.1;
       if ((gc_[2] - z_ht) < term_height)
       {
@@ -1211,7 +1271,9 @@ namespace raisim
 
       terminalReward = 0.f;
       int max_steps = 1200;
-      if (isSlope)
+      if (morphologyEval_)
+        max_steps = morphology_max_steps_;
+      else if (isSlope)
         max_steps = 1200;
 
       if (step_counter > max_steps)
@@ -1229,6 +1291,34 @@ namespace raisim
     {
       reward << forwardReward, 0, 0, deltaTorqueReward_, actionReward_, sidewaysReward_, jointSpeedReward_, deltaContactReward_, deltaReleaseReward_, footSlipReward_, upwardReward_, workReward_, yAccReward_, current_torque_squareNorm, canonical_step_height, walked_dist_;
       return;
+    }
+
+    void setSpeedCommand(double vx, double wz) override
+    {
+      apply_speed_command(vx, wz);
+    }
+
+    void getTelemetry(Eigen::Ref<EigenVec> out) override
+    {
+      out = cached_telemetry_;
+    }
+
+  private:
+    void cache_step_telemetry_()
+    {
+      double power = 0.0;
+      auto force = a1_->getGeneralizedForce().e();
+      auto vel = a1_->getGeneralizedVelocity().e();
+      for (int i = 0; i < nJoints_; i++)
+        power += std::abs(force.tail(nJoints_)[i] * vel.tail(nJoints_)[i]);
+      cached_telemetry_[0] = bodyLinearVel_[0];
+      cached_telemetry_[1] = bodyLinearVel_[1];
+      cached_telemetry_[2] = bodyLinearVel_[2];
+      cached_telemetry_[3] = bodyOrientation_[0];
+      cached_telemetry_[4] = bodyOrientation_[1];
+      cached_telemetry_[5] = bodyOrientation_[2];
+      cached_telemetry_[6] = power;
+      cached_telemetry_[7] = 0.f;
     }
 
   private:
@@ -1365,5 +1455,10 @@ namespace raisim
     raisim::Mat<3, 3> gc_headOrientation;
     Eigen::Vector3d headLinearVel_, headAngularVel_;
     std::vector<raisim::Visuals *> visual_scan_dots;
+
+    bool morphologyEval_ = false;
+    int morphology_max_steps_ = 500;
+    std::string urdfRelPath_;
+    Eigen::VectorXf cached_telemetry_;
   };
 }

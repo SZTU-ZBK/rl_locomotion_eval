@@ -23,3 +23,20 @@ raisimGymTorch/env/bin/*_debug_app
 runs*/
 plots/
 data_rss/
+
+# Python cache
+__pycache__/
+
+# Raisim license and local resource symlink (see README)
+activation.raisim
+*.raisim
+/rsc
+
+# Morphology eval: generated URDF pools and run outputs (rebuild via build_variant_pool)
+eval_suite/assets/**/*
+!eval_suite/assets/.gitkeep
+eval_suite/results/**/*
+!eval_suite/results/.gitkeep
+
+# Rollout artifacts
+*.npz

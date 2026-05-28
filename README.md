@@ -138,3 +138,137 @@ You can follow exactly the same steps as for the priviledged policy (but now run
 ### Using a blind policy on a real robot
 
 If you want to use a policy you trained on a real robot, you should first move it in the [models folder](https://github.com/antonilo/vision_locomotion/tree/master/controller/models), change the path to the model in the [launch_file](https://github.com/antonilo/vision_locomotion/blob/master/controller/launch/cms_ros.launch#L7) and the policy id in the [parameter_file](https://github.com/antonilo/vision_locomotion/blob/master/controller/parameters/default.yaml#L2). 
+
+## Morphology Evaluation (eval_suite)
+
+This repo includes a morphology evaluation pipeline adapted from the WTW/GenLoco protocol. It evaluates how well a **blind policy** generalizes to scaled A1 URDF variants, and writes results in `summary_all.csv` format.
+
+**Default eval policy:** official CMS blind policy `data/blind_policy/` (id `1200`).
+
+### Prerequisites
+
+1. Raisim + environments compiled (see above).
+2. Conda env `cms` activated.
+3. Resource path available at `/home/zbk/Project/rsc` (symlink to `raisimLib/rsc`).
+4. Set library path before every run:
+
+```bash
+conda activate cms
+export LD_LIBRARY_PATH=/home/zbk/Project/raisim/linux/lib:$LD_LIBRARY_PATH
+cd /home/zbk/Project/rl_locomotion_eval
+export PYTHONPATH=/home/zbk/Project/rl_locomotion_eval:$PYTHONPATH
+```
+
+Or use the helper script:
+
+```bash
+source eval_suite/scripts/activate_eval_env.sh
+```
+
+After editing `raisimGymTorch/env/envs/dagger_a1/Environment.hpp`, recompile:
+
+```bash
+python setup.py build_ext --inplace
+```
+
+### Visualize the blind policy (sanity check)
+
+```bash
+cd raisimGymTorch/env/envs/dagger_a1
+python viz_policy.py ../../../../data/blind_policy 1200
+```
+
+Optional: start RaisimUnity in another terminal for visualization.
+
+### Build morphology URDF variant pools
+
+Generate 64 URDF variants per condition (symmetric / full_asym):
+
+```bash
+python -m eval_suite.morphology.build_variant_pool --mode symmetric --num_variants 64 --seed 42
+python -m eval_suite.morphology.build_variant_pool --mode full_asym --num_variants 64 --seed 42
+```
+
+Offline check (manifest + URDF parse):
+
+```bash
+python eval_suite/scripts/smoke_test_offline.py
+```
+
+Assets are written to:
+
+- `eval_suite/assets/symmetric_v64/`
+- `eval_suite/assets/full_asym_v64/`
+
+### Run morphology evaluation
+
+**Mini eval** (baseline + 2 symmetric + 2 full_asym, ~30 s):
+
+```bash
+python -m eval_suite.runners.run_all --config eval_suite/config/eval_blind.yaml --out_dir eval_suite/results/mini_eval
+```
+
+**Full eval** (33 variants: 1 baseline + 16 symmetric + 16 full_asym, ~5–10 min):
+
+No config changes needed — use [`eval_suite/config/eval_full.yaml`](eval_suite/config/eval_full.yaml):
+
+```bash
+python -m eval_suite.runners.run_all --config eval_suite/config/eval_full.yaml
+```
+
+Or one-shot (build 64-variant pools if missing, then run full eval):
+
+```bash
+bash eval_suite/scripts/run_morphology_eval.sh
+```
+
+Run a single condition only:
+
+```bash
+python -m eval_suite.runners.run_condition \
+  --condition baseline \
+  --out_dir eval_suite/results/baseline_only \
+  --config eval_suite/config/eval_full.yaml
+```
+
+Variant pools must exist under `eval_suite/assets/` (see **Build morphology URDF variant pools** above). Pool size stays 64; eval takes the first 16 per condition (`num_variants: 16`).
+
+### Outputs
+
+Each run creates a timestamped directory under `eval_suite/results/`, containing:
+
+```
+eval_suite/results/<run_id>/
+  summary_all.csv          # aggregated metrics (all conditions)
+  summary_all.json
+  COMBINED_REPORT.md
+  baseline/  symmetric/  full_asym/
+    summary.csv
+    episodes/variant_XXX/
+      speed_limit.json     # v_max binary search records
+      straight_line.npz    # yaw / stability / power rollout
+```
+
+Main metrics: `v_max`, `v_max_success_rate`, `yaw_offset_mean`, `yaw_variance`, `base_variance_scalar`, `mean_power`, `cot`.
+
+### Configuration
+
+- Global defaults: [`eval_suite/config/eval_defaults.yaml`](eval_suite/config/eval_defaults.yaml)
+- **Full eval (33 variants):** [`eval_suite/config/eval_full.yaml`](eval_suite/config/eval_full.yaml)
+- Mini eval (5 variants): [`eval_suite/config/eval_blind.yaml`](eval_suite/config/eval_blind.yaml)
+
+Key settings:
+
+| Setting | Default | Notes |
+|---------|---------|-------|
+| Policy | `data/blind_policy`, id `1200` | blind prop_encoder + mlp |
+| Speed search | `[0, 0.6]` m/s | CMS training range |
+| Straight-line cmd | `0.45` m/s | fixed forward speed |
+| Episode | 5 s (500 steps @ 0.01 s) | flat morphology eval mode |
+| Scale range | `[0.8, 1.2]` | mass ∝ scale³ |
+
+### Notes
+
+- Absolute metric values are **not directly comparable** to Go1/WTW numbers in [`summary_all.csv`](summary_all.csv); use **baseline A1** in the same run as the reference.
+- Morphology eval uses `dagger_a1` with `morphology_eval: true` (flat terrain, fixed speed command, no domain randomization).
+- Scaled URDF variants may fail zero-shot even when baseline succeeds; that is expected for morphology transfer experiments.

@@ -1,0 +1,66 @@
+repo_root: /home/zbk/Project/rl_locomotion_eval
+
+sim:
+  env_module: dagger_a1
+  control_dt: 0.01
+  home_path_rsc: /home/zbk/Project/rsc
+
+episode:
+  duration_s: 5.0
+  warmup_s: 1.0
+  base_variance_window_s: 3.0
+
+morphology:
+  scale_min: 0.8
+  scale_max: 1.2
+  pool_size: 64
+  num_variants: 16
+  seed: 42
+
+speed_search:
+  enabled: true
+  v_min: 0.0
+  v_max: 0.6
+  precision: 0.05
+  tracking_threshold: 0.3
+  ang_speed: 0.0
+
+straight_line:
+  command_max_speed: 0.45
+  command_ang_speed: 0.0
+
+policy:
+  type: blind
+  checkpoint_dir: data/blind_policy
+  policy_id: 1200
+  history_len: 50
+  base_dim: 42
+  prop_latent_update_every: 2
+
+robot:
+  name: a1
+  mass_kg: 12.0
+
+metrics:
+  gravity: 9.81
+
+paths:
+  base_urdf: /home/zbk/Project/rsc/a1/urdf/a1.urdf
+  symmetric_assets: eval_suite/assets/symmetric_v64
+  full_asym_assets: eval_suite/assets/full_asym_v64
+  dagger_cfg: data/blind_policy/cfg.yaml
+
+environment_override:
+  morphology_eval: true
+  render: false
+  num_envs: 1
+  num_threads: 1
+  eval: false
+  test: false
+  randomize_friction: false
+  randomize_mass: false
+  randomize_motor_strength: false
+  randomize_gains: false
+  randomize_yaw: false
+  roughTerrain: false
+  morphology_max_steps: 500

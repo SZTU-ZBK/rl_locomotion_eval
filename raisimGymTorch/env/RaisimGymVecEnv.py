@@ -174,6 +174,14 @@ class RaisimGymVecEnv:
     def set_itr_number(self, itr_number):
         self.wrapper.setItrNumber(itr_number)
 
+    def set_speed_command(self, vx, wz):
+        self.wrapper.setSpeedCommand(float(vx), float(wz))
+
+    def get_telemetry(self):
+        telemetry = np.zeros((self.num_envs, 8), dtype=np.float32)
+        self.wrapper.getTelemetry(telemetry)
+        return telemetry
+
     @property
     def num_envs(self):
         return self.wrapper.getNumOfEnvs()
