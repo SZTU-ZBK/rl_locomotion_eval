@@ -131,6 +131,9 @@ namespace raisim
       morphology_max_steps_ = 500;
       if (&cfg["morphology_max_steps"])
         morphology_max_steps_ = cfg["morphology_max_steps"].template As<int>();
+      morphology_spawn_scale_ = 1.0;
+      if (&cfg["morphology_spawn_scale"])
+        morphology_spawn_scale_ = cfg["morphology_spawn_scale"].template As<double>();
       urdfRelPath_ = "a1/urdf/a1.urdf";
       if (&cfg["urdf_path"])
       {
@@ -293,6 +296,71 @@ namespace raisim
       double delta_ang_speed = wz;
       speed_vec.setZero();
       speed_vec << delta_max_speed, delta_ang_speed, delta_max_speed, delta_ang_speed;
+    }
+
+    bool morphologyHasNonFootContact_()
+    {
+      for (auto &contact : a1_->getContacts())
+      {
+        if (contact.skip())
+          continue;
+        if (footIndices_.find(contact.getlocalBodyIndex()) == footIndices_.end())
+          return true;
+      }
+      return false;
+    }
+
+    double morphologyMinFootHeight_()
+    {
+      double min_foot_z = 1e9;
+      for (int fi = 0; fi < nFoot; fi++)
+      {
+        raisim::Vec<3> footPosition;
+        a1_->getFramePosition(footFrame_[fi], footPosition);
+        min_foot_z = std::min(min_foot_z, footPosition[2]);
+      }
+      return min_foot_z;
+    }
+
+    void adjustMorphologySpawnHeight()
+    {
+      gc_init_.tail(nJoints_) = jt_mean_pos;
+      pTarget_.tail(nJoints_) = actionMean_;
+      const double ground_z = hm_ ? hm_->getHeight(gc_init_[0], gc_init_[1]) : 0.0;
+      const double target_foot_clearance = 0.018;
+      const double scale = std::max(0.5, morphology_spawn_scale_);
+
+      gc_init_[2] = ground_z + 0.62 * scale;
+
+      for (int iter = 0; iter < 80; ++iter)
+      {
+        a1_->setState(gc_init_, gv_init_);
+        a1_->setPdTarget(pTarget_, vTarget_);
+        for (int s = 0; s < 10; s++)
+        {
+          if (server_)
+            server_->lockVisualizationServerMutex();
+          world_->integrate();
+          if (server_)
+            server_->unlockVisualizationServerMutex();
+        }
+
+        if (morphologyHasNonFootContact_())
+        {
+          gc_init_[2] += 0.006;
+          continue;
+        }
+
+        const double min_foot_z = morphologyMinFootHeight_();
+        if (min_foot_z > ground_z + target_foot_clearance + 0.003)
+        {
+          gc_init_[2] -= 0.003;
+          continue;
+        }
+        break;
+      }
+
+      gc_init_.tail(nJoints_) = jt_mean_pos;
     }
 
     void add_steps()
@@ -882,10 +950,15 @@ namespace raisim
       if (resample && !morphologyEval_)
         sample_goals();
       gv_init_.setZero(gvDim_);
-      gv_init_ += 0.1 * Eigen::VectorXd::Random(gvDim_);
+      if (!morphologyEval_)
+        gv_init_ += 0.1 * Eigen::VectorXd::Random(gvDim_);
 
+      gc_init_.tail(nJoints_) = jt_mean_pos;
       double z_ht = (hm_) ? hm_->getHeight(gc_init_[0], gc_init_[1]) : 0;
-      gc_init_[2] = z_ht + (morphologyEval_ ? 0.6 : 0.4);
+      if (morphologyEval_)
+        gc_init_[2] = z_ht + 0.62 * morphology_spawn_scale_;
+      else
+        gc_init_[2] = z_ht + 0.4;
 
       a1_->setState(gc_init_, gv_init_);
 
@@ -906,6 +979,12 @@ namespace raisim
       // get to rest pos
       pTarget_.tail(nJoints_) = Eigen::VectorXd::Zero(12) + actionMean_;
 
+      a1_->setPdTarget(pTarget_, vTarget_);
+
+      if (morphologyEval_)
+        adjustMorphologySpawnHeight();
+
+      a1_->setState(gc_init_, gv_init_);
       a1_->setPdTarget(pTarget_, vTarget_);
 
       for (int i = 0; i < 50; i++)
@@ -1234,7 +1313,6 @@ namespace raisim
         for (auto &contact : a1_->getContacts())
           if (footIndices_.find(contact.getlocalBodyIndex()) == footIndices_.end())
           {
-            // std::cout << "Terminating for contact " << std::endl;
             return true;
           }
       }
@@ -1253,10 +1331,9 @@ namespace raisim
       double z_ht = (hm_) ? hm_->getHeight(x, y) : 0;
       double term_height = 0.24;
       if (morphologyEval_ || isTest || isSlope || isEval)
-        term_height = 0.1;
+        term_height = 0.1 * std::max(0.5, morphology_spawn_scale_);
       if ((gc_[2] - z_ht) < term_height)
       {
-        //std::cout << "Terminating for height " << std::endl;
         return true;
       }
 
@@ -1458,6 +1535,7 @@ namespace raisim
 
     bool morphologyEval_ = false;
     int morphology_max_steps_ = 500;
+    double morphology_spawn_scale_ = 1.0;
     std::string urdfRelPath_;
     Eigen::VectorXf cached_telemetry_;
   };

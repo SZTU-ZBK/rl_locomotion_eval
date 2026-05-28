@@ -132,7 +132,7 @@ def run_condition(condition, out_dir, config=None, visualize=False):
         print("[{}] variant {} scale={:.3f} urdf={}".format(
             condition, idx, variant.get("randomized_scale", 1.0), urdf_path))
 
-        env, _ = make_env(config, urdf_path)
+        env, _ = make_env(config, urdf_path, spawn_scale=variant.get("randomized_scale", 1.0))
         if visualize:
             env.turn_on_visualization()
 

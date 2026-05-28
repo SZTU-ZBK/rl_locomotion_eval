@@ -17,7 +17,7 @@ def _import_env_module(name):
     return mod
 
 
-def make_env(config, urdf_path):
+def make_env(config, urdf_path, spawn_scale=1.0):
     repo_root_path = config["_repo_root"]
     sim_cfg = config["sim"]
     env_module = sim_cfg["env_module"]
@@ -31,6 +31,7 @@ def make_env(config, urdf_path):
     overrides = copy.deepcopy(config.get("environment_override", {}))
     overrides["morphology_eval"] = True
     overrides["urdf_path"] = os.path.abspath(urdf_path)
+    overrides["morphology_spawn_scale"] = float(spawn_scale)
     overrides["num_envs"] = 1
     overrides["num_threads"] = 1
     overrides["render"] = False

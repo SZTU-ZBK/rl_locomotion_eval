@@ -64,3 +64,4 @@ environment_override:
   randomize_yaw: false
   roughTerrain: false
   morphology_max_steps: 500
+  morphology_spawn_scale: 1.0

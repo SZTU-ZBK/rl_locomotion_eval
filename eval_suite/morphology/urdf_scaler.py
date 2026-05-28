@@ -9,6 +9,35 @@ import xml.etree.ElementTree as ET
 LEG_PREFIXES = ("FR", "FL", "RR", "RL")
 LEG_JOINT_SUFFIXES = ("_hip_joint", "_thigh_joint", "_calf_joint", "_foot_fixed")
 LEG_LINK_PATTERN = re.compile(r"^(FR|FL|RR|RL)_(hip|thigh|calf|foot)$")
+TRUNK_LINK_NAME = "trunk"
+
+
+def scale_trunk(tree, scale):
+    """Scale trunk collision/visual/inertial with leg scale for consistent morphology."""
+    root = tree.getroot()
+    for link in root.findall("link"):
+        if link.get("name") != TRUNK_LINK_NAME:
+            continue
+        inertial = link.find("inertial")
+        if inertial is not None:
+            mass_elem = inertial.find("mass")
+            if mass_elem is not None and mass_elem.get("value"):
+                mass_elem.set("value", "%.6f" % _scale_mass(float(mass_elem.get("value")), scale))
+            origin = inertial.find("origin")
+            if origin is not None and origin.get("xyz"):
+                origin.set("xyz", _format_xyz(_scale_xyz(_parse_xyz(origin.get("xyz")), scale)))
+        for tag in ("collision", "visual"):
+            for section in link.findall(tag):
+                origin = section.find("origin")
+                geom = section.find("geometry")
+                if geom is None:
+                    continue
+                if geom.find("box") is not None:
+                    _scale_box_geom(origin, geom, scale)
+                mesh = geom.find("mesh")
+                if mesh is not None and mesh.get("scale"):
+                    mesh.set("scale", "%.6f %.6f %.6f" % (scale, scale, scale))
+    return tree
 
 
 def _parse_xyz(text):
@@ -115,6 +144,7 @@ def scale_a1_urdf_tree(tree, leg_scales, mesh_dir):
                 elif geom.find("cylinder") is not None:
                     _scale_cylinder_geom(origin, geom.find("cylinder"), scale)
 
+    scale_trunk(tree, mean_leg_scale(leg_scales))
     return tree
 
 
