@@ -1,5 +1,9 @@
 build/
-data
+data/*
+!data/base_policy/
+!data/base_policy/**
+!data/blind_policy/
+!data/blind_policy/**
 dist/
 _build/
 _generate/
